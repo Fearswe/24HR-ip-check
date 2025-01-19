@@ -1,8 +1,10 @@
+use std::{path::PathBuf, str::FromStr};
+
 use ip_check::ip_lookup::{Looker, IpLookup};
 fn main(){
     let ip = "12.22.104.13";
-    let file_path = "locationv4.csv";
-    let looker = Looker::new(file_path.to_string());
+    let file_path = PathBuf::from_str("locationv4.csv").expect("Path not correct");
+    let looker = Looker::new(file_path);
     let result = looker.look_up(ip);
     match result {
         Some(ip_range) => {
