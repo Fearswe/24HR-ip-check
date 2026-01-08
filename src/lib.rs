@@ -23,6 +23,12 @@ pub mod ip_lookup {
         pub ip_ranges: Vec<IpRange>,
     }
 
+    #[derive(Debug, Default)]
+    pub struct LookerBuilder {
+        file_path: Option<PathBuf>,
+        allowed_countries: Option<Vec<String>>,
+    }
+
     pub trait IpLookup {
         fn look_up(&self, ip: &str) -> Option<IpRange>;
         fn look_up_ipv4(&self, ip: &Ipv4Addr) -> Option<IpRange>;
@@ -32,20 +38,13 @@ pub mod ip_lookup {
 
         pub fn new(file_path: PathBuf) -> Self {
 
-            let mut rdr = Reader::from_path(&file_path).expect("IP CSV file not found");
-            let mut ip_ranges = Vec::new();
-
-            for result in rdr.records() {
-                let record = result.unwrap();
-                let start: u32 = record[0].parse().unwrap();
-                let end: u32 = record[1].parse().unwrap();
-                let country = record[2].to_string();
-                let region = record[4].to_string();
-                let city = record[5].to_string();
-
-                ip_ranges.push(IpRange { start, end, country, region, city });
-            }
-
+            let ip_ranges = match read_ip_ranges(file_path.to_str().expect("IP CSV file not found"), None) {
+                Ok(ranges) => ranges,
+                Err(e) => {
+                    log::error!("Error reading IP ranges: {}", e);
+                    Vec::new()
+                }
+            };
             Looker {
                 file_path,
                 ip_ranges,
@@ -53,12 +52,65 @@ pub mod ip_lookup {
 
         }
 
+        pub fn builder() -> LookerBuilder {
+            LookerBuilder::new()
+        }
+
     }
 
-    fn read_ip_ranges(file_path: &str) -> Result<Vec<IpRange>, Box<dyn Error>> {
+    impl LookerBuilder {
+        pub fn new() -> Self {
+            Self::default()
+        }
+
+        pub fn file_path(mut self, path: PathBuf) -> Self {
+            self.file_path = Some(path);
+            self
+        }
+
+        pub fn allowed_countries(mut self, countries: Vec<String>) -> Self {
+            if countries.is_empty() {
+                log::warn!("Allowed countries is empty, filter will be ignored!");
+                self.allowed_countries = None;
+                return self;
+            }
+
+            self.allowed_countries = Some(countries);
+            self
+        }
+
+        pub fn build(self) -> Result<Looker, Box<dyn Error>> {
+            let ip_ranges = match read_ip_ranges(self.file_path.as_ref().expect("IP CSV file not found").to_str().expect("Invalid file path"), self.allowed_countries.as_ref()) {
+                Ok(ranges) => ranges,
+                Err(e) => {
+                    log::error!("Error reading IP ranges: {}", e);
+                    Vec::new()
+                }
+            };
+
+            Ok(Looker {
+                file_path: self.file_path.unwrap(),
+                ip_ranges,
+            })
+        }
+    }
+
+    fn read_ip_ranges(file_path: &str, allowed_countries: Option<&Vec<String>>) -> Result<Vec<IpRange>, Box<dyn Error>> {
         let mut rdr = Reader::from_path(file_path)?;
         let mut ip_ranges = Vec::new();
-        
+
+        let allowed_countries = match allowed_countries {
+            Some(filter) => {
+                if filter.is_empty() {
+                    log::warn!("Country filter is empty, filter will be ignored!");
+                    None
+                } else {
+                    Some(filter)
+                }
+            },
+            None => None,
+        };
+
         for result in rdr.records() {
             let record = result?;
             let start: u32 = record[0].parse()?;
@@ -66,6 +118,12 @@ pub mod ip_lookup {
             let country = record[2].to_string();
             let region = record[4].to_string();
             let city = record[5].to_string();
+
+            if let Some(ref filter) = allowed_countries {
+                if !filter.contains(&country) {
+                    continue;
+                }
+            }
             
             ip_ranges.push(IpRange { start, end, country, region, city });
         }
@@ -103,7 +161,6 @@ pub mod ip_lookup {
         Ok(decimal)
     }
 
-
     pub fn look_up(ip: &str, file_path: &str) -> Option<IpRange> {
         let ip_decimal_to_use = match ip_string_to_decimal(ip) {
             Err(e) => {
@@ -114,7 +171,39 @@ pub mod ip_lookup {
                 ip_decimal
             }
         };
-         let ip_ranges_to_use = match read_ip_ranges(file_path) {
+         let ip_ranges_to_use = match read_ip_ranges(file_path, None) {
+            Err(e) => {
+                log::error!("Error: {}", e);
+                return None;
+            },
+            Ok(ip_ranges) => {
+                ip_ranges
+            }
+        };
+        
+        match find_ip_range(ip_decimal_to_use, &ip_ranges_to_use[..]) {
+            Some(range) => {
+                log::trace!("IP is in range: {:?}", range);
+                Some(range)
+            },
+            None => {
+                log::trace!("IP not found in any range");
+                None
+            }
+        }
+    }
+
+    pub fn look_up_filtered(ip: &str, file_path: &str, allowed_countries: &Vec<String>) -> Option<IpRange> {
+        let ip_decimal_to_use = match ip_string_to_decimal(ip) {
+            Err(e) => {
+                log::error!("Error: {}", e);
+                return None;
+            },
+            Ok(ip_decimal) => {
+                ip_decimal
+            }
+        };
+         let ip_ranges_to_use = match read_ip_ranges(file_path, Some(allowed_countries)) {
             Err(e) => {
                 log::error!("Error: {}", e);
                 return None;
@@ -181,4 +270,4 @@ pub mod ip_lookup {
 
 }
 
-pub use crate::ip_lookup::{look_up, Looker, IpLookup};
+pub use crate::ip_lookup::{look_up, look_up_filtered, Looker, LookerBuilder, IpLookup, };

@@ -4,7 +4,7 @@ This crate exposes a struct called Looker that you need to instantiate like this
 use ip_check::{Looker, IpLookup};
 
 let file_path = PathBuf::from_str("locationv4.csv").expect("Path not correct");
-let looker = Looker::new_(file_path);
+let looker = Looker::new(file_path);
 ```
 
 You can then use the looker variable to call the look_up method like this to get a IP result with Country, Region and City:
@@ -39,6 +39,32 @@ Or if you only have a string as an IP:
         }
     }
 ```
+
+llows you to filter on countries when building the Looker. Useful if you only care about a few countries to reduce memory usage:
+
+```rust
+    let file_path = PathBuf::from_str("locationv4.csv").expect("Path not correct");
+    let allowed_countries = vec!["Sweden".to_string(), "Norway".to_string()]; // Note they must match the country names in the csv file
+    let looker = Looker::builder()
+        .file_path(file_path)
+        .allowed_countries(allowed_countries)
+        .build()
+        .expect("Failed to build Looker");
+    let ip = "12.22.104.13";
+    let result = looker.look_up(ip);
+    match result {
+        Some(ip_range) => {
+            println!("Country: {}", ip_range.country);
+            println!("Region: {}", ip_range.region);
+            println!("City: {}", ip_range.city);
+        },
+        None => {
+            println!("No match found");
+        }
+    }
+```
+
+
 You can download the ip .csv file from here:
 https://cable.ayra.ch/ip/data/locationv4.gz
 

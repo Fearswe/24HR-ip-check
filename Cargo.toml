@@ -1,6 +1,6 @@
 [package]
 name = "ip-check"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2021"
 description = "Check in what country an IP address is located"
 authors = ["Simon Sporrong"]
